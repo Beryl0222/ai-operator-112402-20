@@ -1,5 +1,5 @@
 {
-  "name": "discrete-lifted-quant-flow",
+  "name": "masked-diffusion-noise",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
     "node": "22.x"
   },
   "scripts": {
-    "test": "node --test",
-    "inspect": "node inspect.mjs"
+    "inspect": "node inspect.mjs",
+    "test": "node --test"
   }
 }
