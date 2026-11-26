@@ -3,11 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./*": "./*",
+    "./src/*": "./src/*"
+  },
   "engines": {
     "node": "22.x"
   },
   "scripts": {
     "inspect": "node inspect.mjs",
+    "demo": "node cli.mjs view",
+    "solve": "node cli.mjs solve",
     "test": "node --test"
-  }
+  },
+  "dependencies": {},
+  "devDependencies": {}
 }

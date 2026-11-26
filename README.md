@@ -9,3 +9,65 @@
 ## 取数
 
 `inputs/noise-key.json` 保存标定、规格和调用记录。记录中的范围除明确说明外从零开始，使用半开区间。批量数组按调用记录列出的顺序交付。noiseRow(index,basis) 给对角噪声系数与低秩行，noiseNormal(step,component,index) 给原生随机变量，conditionTile(tile) 读条件块。
+
+## 条件噪声 API
+
+主入口是 `index.mjs`（也可从 `conditional-noise.mjs`、`operator.mjs`、`editor.mjs`、`solution.mjs` 等兼容文件名导入）。
+
+```js
+import { sampleConditional, createEditor } from './index.mjs';
+
+const noise = sampleConditional({
+  stamp: 'a',                 // 关联 [stamp, step, basis]
+  conditions: ['bound', 'same', 'low'], // 也接受 [id, indices, weights, b] 或对象
+  region: [128, 256],         // 半开区间、索引数组或 {start,end}
+  // seed: 'example-seed',    // 不传则用 noise-key.json 的 seed
+});
+
+noise.values;          // 按请求索引顺序交付的条件噪声 z
+noise.maxResidual;     // 全部原始条件的最大残差，要求 < 3e-6
+noise.rank;            // 相容条件的独立秩；重复行不增加秩
+noise.latentFetch;     // 实际读取的唯一原生 ε/η 坐标数
+noise.budget;          // 取数、留存字节和 workBytes/latentFetch 预算
+```
+
+数学实现直接在原生标准坐标 `x=[ε,η]` 上做正交条件化：`z=Hx`、`G=CH`，并用 `x'=x+Gᵀ(GGᵀ)⁺(b-Gx)` 的等价正交消去。典型 tile 的 `GGᵀ` 具有“稀疏 ε 重叠块 + rank 36 低秩项”结构，因此走分块 Cholesky + Woodbury；只有出现零对角/秩亏复杂重叠时才进入小规模稠密正交行消去。不会构造或落盘典型的 N×N 协方差矩阵。
+
+### 编辑器与历史
+
+```js
+const editor = createEditor();
+const run = editor.runView();      // 按 noise-key.json 的 view 顺序回放
+
+const preview = editor.sample('a', [0, 64], { seed: 'example' });
+editor.acceptVersion('a', preview.versionId, { indices: [0, 1, 8] });
+editor.request('a', [128, 256]);   // 沿用 a/T18/basis1、条件和示例种子
+editor.readVersion(preview.versionId); // 读回当时展示的数组
+```
+
+- 条件和接受记录按 stamp 隔离；`a` 上的 `same/bound` 与 `b` 上的 `wrong` 不会互相污染。
+- 已在当前 stamp 生效的目标再次 `accept` 会返回同一 `patchId`/`conditionIdentity`，标记 `alreadyEffective`。
+- 其他 stamp 的同名条件实例不能直接移动；错误码为 `CROSS_STAMP_CONDITION`。
+- 来源步次不明的旧条件可用 `importLegacyCondition` 捕获 `STEP_RESOLUTION_REQUIRED`，界面选择 `resolveLegacy(id,'rebuild',{stamp})` 或 `resolveLegacy(id,'history')`。
+- `submitFrame(stamp, frame)` 接受 `imageId/pictureId`、`featureGrid/features`、`constrainedPixels/pixels` 和当前协方差模型；约束像素会进入该 stamp 的有效条件集。
+
+### 错误语义
+
+| 含义 | 错误类 | `code` |
+| --- | --- | --- |
+| 协方差矩阵/模型行不可用 | `MatrixUnavailableError` | `MATRIX_UNAVAILABLE` |
+| 条件不相容 | `UnsatisfiableConstraintsError` | `CONSTRAINTS_UNSATISFIABLE` |
+| 缺少画面、特征、像素、区域或条件定义 | `MissingInputError` | `MISSING_INPUT` |
+| 旧条件步次/相关轴不明 | `StepResolutionRequiredError` | `STEP_RESOLUTION_REQUIRED` |
+| 跨 stamp 移动条件 | `CrossStampConditionError` | `CROSS_STAMP_CONDITION` |
+
+错误的 `codes` 字段还包含常见英文别名。若调用方希望按状态读取而不是捕获异常，可使用 `evaluateConditionalNoise(options)`，返回 `status: 'ok' | 'matrix-unavailable' | 'unsatisfiable' | 'missing-input' | ...`。
+
+常用命令：
+
+```sh
+npm run inspect   # 只读取资料元数据
+npm test          # 输入契约与条件噪声/编辑器测试
+npm run demo      # 回放 noise-key.json 的 view
+```
+
